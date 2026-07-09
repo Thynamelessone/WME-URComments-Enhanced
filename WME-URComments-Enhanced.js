@@ -1,9 +1,8 @@
 // ==UserScript==
 // @name        WME URComments-Enhanced
 // @namespace   https://greasyfork.org/users/166843
-// @version     2026.06.28.01
-// eslint-disable-next-line max-len
-// @description URComments-Enhanced (URC-E) allows Waze editors to handle WME update requests more quickly and efficiently. Also adds many UR filtering options, ability to change the markers, plus much, much, more!
+// @version     2026.07.08.01
+// @description URComments-Enhanced (URC-E) handle WME update requests more quickly and efficiently. Also adds many UR filtering options, ability to change the markers, and more!
 // @grant       GM_xmlhttpRequest
 // @match       *://*.waze.com/*editor*
 // @exclude     *://*.waze.com/user/editor*
@@ -88,7 +87,7 @@
         _BETA_DL_URL = 'YUhSMGNITTZMeTluY21WaGMzbG1iM0pyTG05eVp5OXpZM0pwY0hSekx6TTNOelEyTkMxM2JXVXRkWEpqYjIxdFpXNTBjeTFsYm1oaGJtTmxaQzFpWlhSaEwyTnZaR1V2VjAxRkxWVlNRMjl0YldWdWRITXRSVzVvWVc1alpXUXVkWE5sY2k1cWN3PT0=',
         _ALERT_UPDATE = true,
         _SCRIPT_VERSION = GM_info.script.version.toString(),
-        _SCRIPT_VERSION_CHANGES = ['CHANGE: minor fixes in a few spots.', 'CHANGE: Pill counts are back!'],
+        _SCRIPT_VERSION_CHANGES = ['CHANGE: Auto send reminders fix.','minor fixes in a few spots.'],
         _MIN_VERSION_AUTOSWITCH = '2019.01.11.01',
         _MIN_VERSION_COMMENTLISTS = '2018.01.01.01',
         _MIN_VERSION_COMMENTS = '2019.03.01.01',
@@ -100,6 +99,8 @@
         _IGNORED_USER_IDS = [2218201706], //Map_Team
         _URCE_API_KEY = 'UVVsNllWTjVRVEo0VDJWVlptOXdSSEZvUWpoeU9HVnpSV0V5UVMxSE1GZzJORlZOY2pGag==',
         _URCE_SPREADSHEET_ID = 'TVdGV1MwSlBkMnBaYlU4NE9IZzVObVpKU0hSSlVXZEJkMDFoUTFaZlRtWnJiSFpRY1dZd1NqQndlbEU9',
+        _fetchHeaders = { 'Content-Type': 'application/json', Referer: 'https://www.waze.com' },
+        //_fetchHeaders = { 'Content-Type': 'application/json' },
         _autoSwitch = {},
         _commentLists = [],
         _currentArea = { country: undefined, state: undefined },
@@ -848,7 +849,7 @@
             (function retry(tries, toIndex, event) {
                 checkTimeout({ timeout: 'checkRestrictions', toIndex });
                 // 2023.04.05.01: W.model.getTopCountry() and W.model.getTopState() return null when zoom level < 12.
-                if (W.map.getOLMap().getZoom() < 12) {
+                if (sdk.Map.getZoomLevel() < 12) {
                     resolve();
                     return;
                 }
@@ -975,7 +976,7 @@
     function mUrsAdded(objectsArr) {
         if (objectsArr?.length === 0)
             return;
-        const zoomLevel = W.map.getOLMap().getZoom();
+        const zoomLevel = sdk.Map.getZoomLevel();
         let filter = true;
         if ((_settings.disableFilteringAboveZoom && (zoomLevel < _settings.disableFilteringAboveZoomLevel))
                 || (_settings.disableFilteringBelowZoom && (zoomLevel > _settings.disableFilteringBelowZoomLevel))
@@ -1022,6 +1023,7 @@
         if (_settings.autoZoomOutAfterComment)
             autoZoomOut();
         if (_settings.autoCloseUrPanel || _selUr.doubleClick) {
+            logDebug("auto close dbl click");
             await autoCloseUrPanel();
         }
         else {
@@ -1167,7 +1169,7 @@
         });
          */
         doSpinner('handleUpdateRequestContainer', true);
-        _restoreZoom = W.map.getOLMap().getZoom();
+        _restoreZoom = sdk.Map.getZoomLevel();
         if (_timeouts.popup)
             hidePopup();
         logDebug(`Handling update request container for urId: ${_selUr.urId}`);
@@ -1220,7 +1222,8 @@
             }
             else {
                 const comments = document.querySelectorAll('.overlay-container wz-card[class^="panel"].problem-edit div[class^="container"] .body .conversation .comment .comment-title');
-                for (let idx = 0, { commentCount } = _mapUpdateRequests[_selUr.urId].urceData; idx < commentCount; idx++) {
+                //for (let idx = 0, { commentCount } = _mapUpdateRequests[_selUr.urId].urceData; idx < commentCount; idx++) {
+                for (let idx = 0; idx < comments.length; idx++) {
                     const currComment = comments[idx];
                     if (currComment.getElementsByClassName('date urce')?.length === 0) {
                         currComment.querySelector('span.date').style.float = 'right';
@@ -1376,7 +1379,7 @@
         domElement = await getDomElement('.overlay-container wz-card[class^="panel"].problem-edit div[class^="container"]');
         if (domElement)
             domElement.scrollTop = domElement.scrollHeight;
-        autoScrollComments(_mapUpdateRequests[_selUr.urId].urceData.commentCount, 10, 1);
+        autoScrollComments(_mapUpdateRequests[_selUr.urId].urceData.commentCount, 20, 2);
         if (_mapUpdateRequests[_selUr.urId].urceData.commentCount === 0) {
             if (_settings.autoZoomInOnNewUr)
                 autoZoomIn();
@@ -1505,6 +1508,7 @@
             handleReadyError(false, false, '', false, '');
             return Promise.resolve();
         }
+        logDebug("auto close - destroy editController");
         W.problemsController.editController.destroy();
         return Promise.resolve();
     }
@@ -1525,22 +1529,22 @@
     }
 
     function autoZoomIn() {
-        if (W.map.getOLMap().getZoom() < 17) {
+        if (sdk.Map.getZoomLevel() < 17) {
             /** 2024.03.22: The location object is no longer x: y: with 900913 coordinates. THis was changed in WME some time ago but never fixed in URC-E.
              *
             const urGeo = W.model.mapUpdateRequests.getObjectById(_selUr.urId).getLocation(),
                 lonlat = new OpenLayers.LonLat(urGeo.x, urGeo.y);
             */
-            const [x, y] = W.model.mapUpdateRequests.getObjectById(_selUr.urId).getLocation().coordinates,
-                lonlat = convertTo900913(x, y);
-            W.map.getOLMap().moveTo(lonlat, 17);
+            const [x, y] = W.model.mapUpdateRequests.getObjectById(_selUr.urId).getLocation().coordinates;
+            let lonLat = { lat: y, lon: x };
+            sdk.Map.setMapCenter({ lonLat, zoomLevel: 17} );
         }
     }
 
     function autoZoomOut() {
         if (_restoreZoom && !document.querySelector('.overlay-container .show')) {
-            if (_restoreZoom !== W.map.getOLMap().getZoom()) {
-                W.map.getOLMap().zoomTo(_restoreZoom);
+            if (_restoreZoom !== sdk.Map.getZoomLevel()) {
+                sdk.Map.setZoomLevel({ zoomLevel: _restoreZoom});
                 _restoreZoom = null;
             }
         }
@@ -2017,18 +2021,21 @@
     }
 
     async function autoPostReminderComment(urId) {
-        if (W.map.getOLMap().getZoom() < 10)
+        if (sdk.Map.getZoomLevel() < 10)
             return Promise.resolve({ error: true, message: 'zoomIn' });
         const comment = formatText(_commentList[_defaultComments.dr.commentNum].comment, true, false, urId);
         try {
             if (/\B\$\S*\$\B/gm.test(comment) || /(\$SELSEGS|\$USERNAME|\$URD)/gm.test(comment))
                throw new Error(`Did not auto-post reminder comment for urId ${urId} because a variable was not replaced.`);
             if (!W.model.updateRequestSessions.getObjectById(urId)) {
-                const data = await W.controller.descartesClient.getUpdateRequestSessionsByIds([urId]);
+                let xx = await sdk.DataModel.MapUpdateRequests.getUpdateRequestDetails({ mapUpdateRequestId: urId });
+                logDebug('UR details ',xx);
+                /*const data = await W.controller.descartesClient.getUpdateRequestSessionsByIds([urId]);
                 if (data[0].updateRequestSessions.objects.length > 0)
                     W.model.mergeResponse(data);
                 else
                     throw new Error(`Failed to merge updateRequestSession for urId ${urId}`);
+                    */
             }
             await sdk.DataModel.MapUpdateRequests.addComment({ mapUpdateRequestId: urId, text: comment });
             return Promise.resolve({ error: false });
@@ -2143,6 +2150,8 @@
             return I18n.t('date.today');
         if (days === 1)
             return I18n.t('date.yesterday');
+        if (days > 1000)
+            return '??';
         return I18n.t('common.time.ago', { time: I18n.t('common.time.days', { days }) });
     }
 
@@ -2577,8 +2586,10 @@
             ({ urId } = _selUr);
         if (!(urId > 0))
             return;
-        if (closeUrPanel)
+        if (closeUrPanel) {
+            logDebug("openUrPanel, closePanel=" + closeUrPanel);
             await autoCloseUrPanel();
+        }
         const t = (_settings.replaceNextWithDoneButton)
             ? { showNext: false, nextButtonString: I18n.t('problems.panel.done') }
             : { showNext: true, nextButtonString: I18n.t('problems.panel.next') };
@@ -2946,8 +2957,8 @@
             logDebug(`Hid UR markers for UR(s): ${markerChanges.markers.hidden.join(', ')} (Total: ${markerChanges.markers.hidden.length})`);
         if (markerChanges.markers.unhidden.length > 0)
             logDebug(`Unhid UR markers for UR(s): ${markerChanges.markers.unhidden.join(', ')} (Total: ${markerChanges.markers.unhidden.length})`);
-        if (markerChanges.markers.missing.length > 0)
-            logDebug(`Missing UR markers for UR(s): ${markerChanges.markers.missing.join(', ')} (Total: ${markerChanges.markers.missing.length})`);
+        //if (markerChanges.markers.missing.length > 0)
+        //    logDebug(`Missing UR markers for UR(s): ${markerChanges.markers.missing.join(', ')} (Total: ${markerChanges.markers.missing.length})`);
         if (markerChanges.pills.added.length > 0)
             logDebug(`Added marker pills for UR(s): ${markerChanges.pills.added.join(', ')} (Total: ${markerChanges.pills.added.length})`);
         if (markerChanges.pills.updated.length > 0)
@@ -3178,7 +3189,7 @@
                                     chunk[idx].setAttribute('autoSentReminder', false);
                                     _autoSentReminderUrIds.delete(+urId);
                                     if (autoPostReminderCommentResult.message === 'zoomIn')
-                                        logDebug(`Did not auto post reminder comment due to zoom being less than 10 (Zoom: ${W.map.getOLMap().getZoom()}) for urId ${urId}.`);
+                                        logDebug(`Did not auto post reminder comment due to zoom being less than 10 (Zoom: ${sdk.Map.getZoomLevel()}) for urId ${urId}.`);
                                     else
                                         logError(autoPostReminderCommentResult.message);
                                 }
@@ -3293,7 +3304,7 @@
             }
         }
         if (updateMarkersArr.length > 0) {
-            const zoomLevel = W.map.getOLMap().getZoom(),
+            const zoomLevel = sdk.Map.getZoomLevel(),
                 filter = !(((_settings.disableFilteringAboveZoom && (zoomLevel < _settings.disableFilteringAboveZoomLevel))
                             || (_settings.disableFilteringBelowZoom && (zoomLevel > _settings.disableFilteringBelowZoomLevel))));
             updateUrMapMarkers(updateMarkersArr, filter);
@@ -3307,7 +3318,7 @@
         if (!mUrsObjArr)
             return Promise.resolve();
         doSpinner('handleUrLayer', true);
-        const zoomLevel = W.map.getOLMap().getZoom();
+        const zoomLevel = sdk.Map.getZoomLevel();
         filter = (filter !== undefined) ? filter : !(((_settings.disableFilteringAboveZoom && (zoomLevel < _settings.disableFilteringAboveZoomLevel))
                                                     || (_settings.disableFilteringBelowZoom && (zoomLevel > _settings.disableFilteringBelowZoomLevel))));
         if (phase === 'init')
@@ -3402,7 +3413,7 @@
     function handleUrOverflow(evt) {
         if (evt?.changed?.loadingIssueTrackerMapData || evt?.attributes?.loadingIssueTrackerMapData)
             return;
-        if (W.map.getOLMap().getZoom() < 10) {
+        if (sdk.Map.getZoomLevel() < 10) {
             logDebug('UR overflow handling does not work with zoom levels < 10.');
             return;
         }
@@ -3488,16 +3499,36 @@
         _mouseIsDown = false;
     }
 
-    /**
-     * 2023.04.05.01: With the removal of the handleUrOverflow call from this function, it and the event listener are no longer needed.
-    function invokeMoveEnd(/* evt *-/) {
+
+    // 2026.07.04 - added this back to check if any URs now on screen and if so call handleUrLayer
+    // 2023.04.05.01: With the removal of the handleUrOverflow call from this function, it and the event listener are no longer needed.
+    function invokeMoveEnd(evt) {
         /**
          * Enable Auto Refresh: Disabled 2023.03.29
          *      Due to W.controller.reloadData() causing issues with new Issue Tracker.
          *      Specifically if user had more than 500 URs loaded in tracker, it would reset them back to 500 due to reloadData
          *      wiping and reloading the model data. For now, this setting is disabled and the functionality has been replaced
          *      with the already working handleOverflow function (if the user has it enabled).
-        const zoomLevel = evt.object.zoom || W.map.getOLMap().getZoom();
+         */
+        const zoomLevel = sdk.Map.getZoomLevel();
+        const ur = getMapUrsObjArr();
+        const eg = getOLMapExtent();
+        let filter;
+        let inCount = 0;
+        for (let idx = 0; idx < ur.length; idx++) {
+            const inBounds = eg.intersectsBounds(ur[idx].getOLGeometry().getBounds())
+            if (ur[idx].isInBbox || inBounds) {
+                inCount++;
+            }
+        }
+
+        if (inCount > 0) {
+            handleUrLayer('zoomEnd', filter, ur);
+        }
+
+        redrawUrOverlays();
+
+        /*
         if (_settings.enableAutoRefresh
             && (zoomLevel > 14)
             && (W.model.mapUpdateRequests.getObjectArray().length > 499)
@@ -3508,13 +3539,14 @@
             alertBoxInPanel(I18n.t('urce.prompts.UrOverflowErrorWithoutOverflowEnabled'), undefined, true, 9999);
         else
             dismissAlertBoxInPanel(undefined, 9999);
-         *-/
+
         // 2023.04.05.01: Used to check for conditions and either run handleUrOverflow or panel alert box or remove it. But now using W.app.on('change:loadingIssueTrackerMapData') event listener.
+        */
     }
-     */
+
 
     function redrawUrOverlays() {
-        const zoomLevel = W.map.getOLMap().getZoom(),
+        const zoomLevel = sdk.Map.getZoomLevel(),
             filter = !(((_settings.disableFilteringAboveZoom && (zoomLevel < _settings.disableFilteringAboveZoomLevel))
                         || (_settings.disableFilteringBelowZoom && (zoomLevel > _settings.disableFilteringBelowZoomLevel))));
         _filtersAppliedOnZoom = filter;
@@ -3522,7 +3554,7 @@
     }
 
     function invokeZoomEnd(evt) {
-        const zoomLevel = evt?.object?.zoom || W.map.getOLMap().getZoom();
+        const zoomLevel = evt?.object?.zoom || sdk.Map.getZoomLevel();
         /**
          * Enable Auto Refresh: Disabled 2023.03.29
          *      Due to W.controller.reloadData() causing issues with new Issue Tracker.
@@ -3547,10 +3579,10 @@
                 filter = false;
         }
         // 2023.04.05.01: Used to check for conditions and either run handleUrOverflow or panel alert box or remove it. But now using W.app.on('change:loadingIssueTrackerMapData') event listener.
-        if (filter !== undefined)
+        if (filter !== undefined || (_settings.perCommentListSettings[_currentCommentList].autoSendReminders || (_restrictionsEnforce.autoSendReminders === true)))
             handleUrLayer('zoomEnd', filter, getMapUrsObjArr());
-        else
-            redrawUrOverlays();
+
+        redrawUrOverlays();
     }
 
     async function invokeModeChange(evt) {
@@ -3601,7 +3633,7 @@
         docFrags = undefined;
     }
 
-    function autoScrollComments(commentCount = 0, retryInterval = 10, maxTries = 200) {
+    function autoScrollComments(commentCount = 0, retryInterval = 20, maxTries = 40) {
         (async function retry(commentCountInt, tries, retryInt, maxNumTries) {
             checkTimeout({ timeout: 'autoScrollComments' });
             if (tries > maxNumTries) {
@@ -3619,12 +3651,12 @@
             else {
                 const pend = W.app.attributes.pendingOperations.length;
                 if (pend > 0) {
-                    logDebug('autoScrollComments - pending: ' + W.app.attributes.pendingOperations.join());
+                    logDebug(tries + ' autoScrollComments - pending: ' + W.app.attributes.pendingOperations.join());
                 }
                 if ((commentCountInt !== 0) && pend > 0 /* W.problemsController.editController.viewModel.get('loadingConversation')*/ )
                     _timeouts.autoScrollComments = window.setTimeout(retry, retryInt, commentCountInt, ++tries, retryInt, maxNumTries);
             }
-        }(commentCount, 1, retryInterval, maxTries));
+        }(commentCount, 0, retryInterval, maxTries));
     }
 
     function changeCommentListStyle(settingVal) {
@@ -4077,7 +4109,7 @@
             logDebug(`Beginning comment list async for comment list: ${commentListInfo.name}`);
             GM_xmlhttpRequest({
                 url: `https://sheets.googleapis.com/v4/spreadsheets/${((commentListIdx === 1001) ? _settings.customSsId : dec(_URCE_SPREADSHEET_ID))}/values/${commentListInfo.gSheetRange}?key=${dec(_URCE_API_KEY)}`,
-                headers: { 'Content-Type': 'application/json', Referer: 'https://www.waze.com' },
+                headers: _fetchHeaders,
                 method: 'GET',
                 onload(res) {
                     if (res.status < 400) {
@@ -4551,7 +4583,7 @@
             logDebug('Registering event hooks.');
             W.map.events.registerPriority('mousedown', null, mouseDown);
             W.map.events.register('zoomend', undefined, invokeZoomEnd);
-            W.map.events.register('moveend', undefined, redrawUrOverlays);
+            W.map.events.register('moveend', undefined, invokeMoveEnd /*redrawUrOverlays*/);
             W.map.events.register('mouseup', undefined, mouseUp);
             W.prefs.on('change:isImperial', invokeModeChange);
             W.model.mapUpdateRequests.on('objectsadded', mUrsAdded);
@@ -4587,7 +4619,7 @@
             logDebug('Unregistering map.events event hook.');
             W.map.events.unregister('mousedown', undefined, mouseDown);
             W.map.events.unregister('zoomend', undefined, invokeZoomEnd);
-            W.map.events.unregister('moveend', undefined, redrawUrOverlays);
+            W.map.events.unregister('moveend', undefined, invokeMoveEnd /*redrawUrOverlays*/);
             W.map.events.unregister('mouseup', undefined, mouseUp);
             W.model.mapUpdateRequests.off('objectsadded', mUrsAdded);
             W.model.mapUpdateRequests.off('objectsremoved', mUrsRemoved);
@@ -4736,9 +4768,9 @@
                 + '#urceShortcuts i.URCE-chevron { font-weight:900; }'
                 + '#urceShortcutsExpand { padding-bottom:4px; font-size:13px; cursor:pointer; border-bottom:1px solid darkgray; }'
                 + '#urceShortcutsExpandDiv { border-bottom:1px solid darkgray; padding: 5px 0 5px 0; }'
-                + '.overlay-container wz-card[class^="panel"].problem-edit { width:380px; max-height:87vh; }'
+                + '.overlay-container wz-card[class^="panel"].problem-edit { width:380px; max-height:83vh; }'
                 + '.overlay-container wz-card[class^="panel"].problem-edit.problem-edit { --wz-card-width: 100%; }'
-                + '.overlay-container wz-card[class^="panel"].problem-edit>* { max-height:87vh; }'
+                + '.overlay-container wz-card[class^="panel"].problem-edit>* { max-height:83vh; }'
                 + '.overlay-container wz-card[class^="panel"].problem-edit .conversation-view .comment-list { padding: 0px 6px; margin-bottom: 6px; max-height: 26vh; }'
                 + '.overlay-container wz-card[class^="panel"].problem-edit .conversation-view .new-comment-form .new-comment-text { margin-bottom: 0px; }'
                 + '.overlay-container wz-card[class^="panel"].problem-edit .conversation-view .comment .comment-title .date.urce { display: flex; justify-content: flex-end; margin-top: -4px; }'
@@ -4772,7 +4804,7 @@
         const zoomOutLinkClicked = function () {
             if (document.querySelector('.overlay-container wz-card[class^="panel"].problem-edit div[class^="container"] .close-panel'))
                 autoCloseUrPanel();
-            W.map.getOLMap().zoomTo(+this.getAttribute('zoomTo'));
+            sdk.Map.setZoomLevel({ zoomLevel: +this.getAttribute('zoomTo')});
         };
         const imgDiv = createElem('div', { id: 'urceIcon', class: 'URCE-divIcon' }),
             contentHeaderDiv = createElem('div', { id: '_divZoomOutLinks', class: 'URCE-divCCLinks', style: _settings.hideZoomOutLinks ? 'display:none;' : '' });
@@ -5872,7 +5904,7 @@
             };
             GM_xmlhttpRequest({
                 url: `https://sheets.googleapis.com/v4/spreadsheets/${dec(_URCE_SPREADSHEET_ID)}/values/CommentLists!A3:G?key=${dec(_URCE_API_KEY)}`,
-                headers: { 'Content-Type': 'application/json', Referer: 'https://www.waze.com' },
+                headers: _fetchHeaders,
                 method: 'GET',
                 onload(res) {
                     let errorText;
@@ -5945,7 +5977,7 @@
             };
             GM_xmlhttpRequest({
                 url: `https://sheets.googleapis.com/v4/spreadsheets/${dec(_URCE_SPREADSHEET_ID)}/values/CommentLists_AutoSwitch!A3:ZZ?majorDimension=COLUMNS&key=${dec(_URCE_API_KEY)}`,
-                headers: { 'Content-Type': 'application/json', Referer: 'https://www.waze.com' },
+                headers: _fetchHeaders,
                 method: 'GET',
                 onload(res) {
                     let errorText;
@@ -6004,7 +6036,7 @@
             };
             GM_xmlhttpRequest({
                 url: `https://sheets.googleapis.com/v4/spreadsheets/${dec(_URCE_SPREADSHEET_ID)}/values/Restrictions!A3:ZZ?majorDimension=COLUMNS&key=${dec(_URCE_API_KEY)}`,
-                headers: { 'Content-Type': 'application/json', Referer: 'https://www.waze.com' },
+                headers: _fetchHeaders,
                 method: 'GET',
                 onload(res) {
                     let errorText;
@@ -6249,10 +6281,11 @@
             /* END FIX */
             GM_xmlhttpRequest({
                 url: `https://sheets.googleapis.com/v4/spreadsheets/${dec(_URCE_SPREADSHEET_ID)}/values/Script_Translations!A3:AA?key=${dec(_URCE_API_KEY)}`,
-                headers: { 'Content-Type': 'application/json', Referer: 'https://www.waze.com' },
+                headers: _fetchHeaders,
                 method: 'GET',
                 onload(res) {
                     let errorText;
+                    logDebug('get translations res ' + res.status);
                     if (res.status < 400) {
                         const data = JSON.parse(res.responseText),
                             translationLocales = [];
