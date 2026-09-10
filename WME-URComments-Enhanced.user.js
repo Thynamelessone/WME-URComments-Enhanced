@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        WME URComments-Enhanced
 // @namespace   https://greasyfork.org/users/166843
-// @version     2026.07.08.01
+// @version     2026.09.10.01
 // @description URComments-Enhanced (URC-E) handle WME update requests more quickly and efficiently. Also adds many UR filtering options, ability to change the markers, and more!
 // @grant       GM_xmlhttpRequest
 // @match       *://*.waze.com/*editor*
@@ -87,7 +87,7 @@
         _BETA_DL_URL = 'YUhSMGNITTZMeTluY21WaGMzbG1iM0pyTG05eVp5OXpZM0pwY0hSekx6TTNOelEyTkMxM2JXVXRkWEpqYjIxdFpXNTBjeTFsYm1oaGJtTmxaQzFpWlhSaEwyTnZaR1V2VjAxRkxWVlNRMjl0YldWdWRITXRSVzVvWVc1alpXUXVkWE5sY2k1cWN3PT0=',
         _ALERT_UPDATE = true,
         _SCRIPT_VERSION = GM_info.script.version.toString(),
-        _SCRIPT_VERSION_CHANGES = ['CHANGE: Auto send reminders fix.','minor fixes in a few spots.'],
+        _SCRIPT_VERSION_CHANGES = ['Update $URD to remove the Map Mate prefix when including users description.'],
         _MIN_VERSION_AUTOSWITCH = '2019.01.11.01',
         _MIN_VERSION_COMMENTLISTS = '2018.01.01.01',
         _MIN_VERSION_COMMENTS = '2019.03.01.01',
@@ -1791,10 +1791,13 @@
                 }
             }
             if (text.includes('$URD')) {
-                if (mapUrObj.getAttribute('description'))
-                    text = text.replace(/("?\$URD\$?"?)+/gmi, `"${mapUrObj.getAttribute('description')}"`).replace(/\n+/gmi, '');
-                else
+                if (mapUrObj.getAttribute('description')) {
+                    const urDescription = mapUrObj.getAttribute('description').replace(/^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*:\s*/, '');
+                    text = text.replace(/("?\$URD\$?"?)+/gmi, `"${urDescription}"`).replace(/\n+/gmi, '');
+                }
+                else {
                     text = text.replace(/("?\$URD\$?"?)+/gmi, '');
+                }
             }
             if (text.includes('$CUSTOMTAGLINE$')) {
                 if (_settings.perCommentListSettings[_currentCommentList].customTagline.length > 0)
