@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        WME URComments-Enhanced
 // @namespace   https://greasyfork.org/users/166843
-// @version     2026.09.10.01
+// @version     2026.09.22.01
 // @description URComments-Enhanced (URC-E) handle WME update requests more quickly and efficiently. Also adds many UR filtering options, ability to change the markers, and more!
 // @grant       GM_xmlhttpRequest
 // @match       *://*.waze.com/*editor*
@@ -87,7 +87,7 @@
         _BETA_DL_URL = 'YUhSMGNITTZMeTluY21WaGMzbG1iM0pyTG05eVp5OXpZM0pwY0hSekx6TTNOelEyTkMxM2JXVXRkWEpqYjIxdFpXNTBjeTFsYm1oaGJtTmxaQzFpWlhSaEwyTnZaR1V2VjAxRkxWVlNRMjl0YldWdWRITXRSVzVvWVc1alpXUXVkWE5sY2k1cWN3PT0=',
         _ALERT_UPDATE = true,
         _SCRIPT_VERSION = GM_info.script.version.toString(),
-        _SCRIPT_VERSION_CHANGES = ['Update $URD to remove the Map Mate prefix when including users description.'],
+        _SCRIPT_VERSION_CHANGES = ['FIX: WME compatibility.'],
         _MIN_VERSION_AUTOSWITCH = '2019.01.11.01',
         _MIN_VERSION_COMMENTLISTS = '2018.01.01.01',
         _MIN_VERSION_COMMENTS = '2019.03.01.01',
@@ -273,7 +273,7 @@
         _userInfoTabContentObserver = new MutationObserver((mutations) => {
             const checkNodes = (node) => {
                 if (node.classList.contains('userscripts-api-docs-link-container') && !_userscriptsApiDocsLinkIntersectionObserver.isObserving) {
-                    _userscriptsApiDocsLinkIntersectionObserver.observing = true;
+                    _userscriptsApiDocsLinkIntersectionObserver.isObserving = true;
                     _userscriptsApiDocsLinkIntersectionObserver.observe(node);
                 }
             };
@@ -1192,14 +1192,14 @@
             }
         }
         await updateUrceData(getMapUrsObjArr([_selUr.urId]));
-        let domElement = await getDomElement('.overlay-container div[class^="container"] .sub-title');
+        let domElement = await getDomElement('.overlay-container wz-card[class^="panel"].problem-edit div[class^="container"] div[class^="issuePanelHeader"] span[class^="subTitle"]');
         if (!domElement) {
             handleReadyError(true, true, 'handleUpdateRequestContainer', false, 'isDomElementReady: .sub-title');
             return;
         }
         if (!domElement.textContent.includes(_selUr.urId))
             domElement.append(` (${_selUr.urId}) `);
-        domElement = await getDomElement('.overlay-container div[class^="container"] .reported');
+        domElement = await getDomElement('.overlay-container wz-card[class^="panel"].problem-edit div[class^="container"] div[class^="issuePanelHeader"] div[class^="reported"]');
         if (!domElement) {
             handleReadyError(true, true, 'handleUpdateRequestContainer', false, '');
             return;
@@ -1209,7 +1209,7 @@
         if (!domElement.textContent.endsWith(')'))
             domElement.textContent += ` (${parseDaysAgo(_mapUpdateRequests[_selUr.urId].urceData.driveDaysOld)})`;
         if (mapUrObj.getAttribute('description')) {
-            const content = await getDomElement('.overlay-container div[class^="container"] .body .problem-data .description .content');
+            const content = await getDomElement('.overlay-container wz-card[class^="panel"].problem-edit div[class^="container"] .body .problem-data .description .content');
             if (content?.children.length === 0) {
                 const divElemRoot = createElem('div', { class: 'URCE-divDesc', textContent: content.textContent });
                 content.textContent = '';
@@ -1255,7 +1255,7 @@
             if (domElement)
                 domElement.style.display = 'none';
         }
-        (await getDomElement('.overlay-container wz-card[class^="panel"].problem-edit div[class^="container"] .focus'))?.addEventListener('click', recenterOnUr);
+        (await getDomElement('.overlay-container wz-card[class^="panel"].problem-edit div[class^="container"] i.w-icon-recenter'))?.addEventListener('click', recenterOnUr);
         domElement = await getDomElement('textarea[id^=wz-textarea-]', '.overlay-container wz-card[class^="panel"].problem-edit div[class^="container"] .body .conversation .new-comment-text');
         if (!domElement) {
             handleReadyError(true, true, 'handleUpdateRequestContainer', false, '');
@@ -1383,7 +1383,7 @@
         if (_mapUpdateRequests[_selUr.urId].urceData.commentCount === 0) {
             if (_settings.autoZoomInOnNewUr)
                 autoZoomIn();
-            const { commentNum } = Object.values(_defaultComments).find((defaultComment) => defaultComment.urNum === mapUrObj.getAttribute('type'));
+            const commentNum = Object.values(_defaultComments).find((defaultComment) => defaultComment.urNum === mapUrObj.getAttribute('type'))?.commentNum;
             if (_selUr.urOpen && commentNum) {
                 if (
                     ((!mapUrObj.getAttribute('description') || (mapUrObj.getAttribute('description').toLowerCase() === 'reported map issue'))
@@ -2121,9 +2121,26 @@
                 else {
                     selectionRange = newCursorPos + comment.replace(/\\[r|n]+/gm, ' ').length + postNls;
                 }
-                domElement.dispatchEvent(new KeyboardEvent('keyup'));
-                domElement.setSelectionRange(selectionRange, selectionRange);
-                domElement.focus();
+                const positionCursor = () => {
+                    domElement.dispatchEvent(new KeyboardEvent('keyup'));
+                    domElement.setSelectionRange(selectionRange, selectionRange);
+                    domElement.scrollTop = _settings.perCommentListSettings[_currentCommentList].placeCursorAtStart ? 0 : domElement.scrollHeight;
+                    domElement.focus();
+                };
+                positionCursor();
+                // Sometimes the comment box gets cleared shortly after we set it - check against this and reassign the comment if needed.
+                const verifyAndReapplyValue = () => {
+                    if (!domElement.isConnected)
+                        return;
+                    if (domElement.value !== commentOutput) {
+                        logDebug(`Comment box value was reset after setting; reapplying. Was: "${domElement.value}"`);
+                        domElement.value = commentOutput;
+                        domElement.dispatchEvent(new Event('input'));
+                    }
+                    positionCursor();
+                };
+                setTimeout(verifyAndReapplyValue, 250);
+                setTimeout(verifyAndReapplyValue, 750);
             }
         }
         doSpinner('postUrComment', false);
@@ -4742,7 +4759,7 @@
                 + '#sidepanel-urc-e .URCE-span { font-size:13px; font-weight:600; }'
                 + '#sidepanel-urc-e .URCE-spanTitle { font-size:14px; font-weight:600; }'
                 + '#sidepanel-urc-e .URCE-spanVersion { font-size:11px; margin-left:11px; color:#aaa; }'
-                + '#sidepanel-urc-e .URCE-divTabs { padding-right:5px; height:calc(100vh - var(--height-offset)); }'
+                + '#sidepanel-urc-e .URCE-divTabs { padding-right:5px; height:calc(100vh - var(--height-offset)); overflow-y:auto; overflow-x:hidden; }'
                 + '#sidepanel-urc-e .URCE-navTabs { padding:0 0 6px; }'
                 + '#sidepanel-urc-e .URCE-navTabs li { flex-grow:1 !important; }' // Compatibility with FUME "Compress/enhance side panel contents" setting
                 + '#panel-urce-comments { padding: 0px !important; width:100% !important; }'
@@ -4777,9 +4794,9 @@
                 + '.overlay-container wz-card[class^="panel"].problem-edit .conversation-view .comment-list { padding: 0px 6px; margin-bottom: 6px; max-height: 26vh; }'
                 + '.overlay-container wz-card[class^="panel"].problem-edit .conversation-view .new-comment-form .new-comment-text { margin-bottom: 0px; }'
                 + '.overlay-container wz-card[class^="panel"].problem-edit .conversation-view .comment .comment-title .date.urce { display: flex; justify-content: flex-end; margin-top: -4px; }'
-                + '.overlay-container wz-card[class^="panel"].problem-edit .issue-panel-header { padding-top: 5px; padding-bottom: 5px; font-size: 12px; line-height: 14px; padding-right: 0px; }'
-                + '.overlay-container wz-card[class^="panel"].problem-edit .issue-panel-header .main-title { font-size: 14px; line-height: 14px; }'
-                + '.overlay-container wz-card[class^="panel"].problem-edit .issue-panel-header .dot { top: 6px; }'
+                + '.overlay-container wz-card[class^="panel"].problem-edit div[class^="issuePanelHeader"] { padding-top: 5px; padding-bottom: 5px; font-size: 12px; line-height: 14px; padding-right: 0px; }'
+                + '.overlay-container wz-card[class^="panel"].problem-edit div[class^="issuePanelHeader"] h6[class^="mainTitle"] { font-size: 14px; line-height: 14px; }'
+                + '.overlay-container wz-card[class^="panel"].problem-edit div[class^="issuePanelHeader"] div[class^="dot"] { top: 6px; }'
                 + '.overlay-container wz-card[class^="panel"].problem-edit .section .content { padding: 5px 12px; font-size: 12px; line-height: 14px; }'
                 + '.overlay-container wz-card[class^="panel"].problem-edit .section .content .URCE-divDesc { max-height: 82px; overflow-y: auto; }'
                 + '.overlay-container wz-card[class^="panel"].problem-edit .section .title { padding: 0 6px 0 6px; font-size: 13px; line-height: 13px; }'
