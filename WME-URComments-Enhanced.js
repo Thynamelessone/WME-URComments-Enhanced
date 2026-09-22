@@ -1399,7 +1399,7 @@
                 ) {
                     if (_settings.autoClickOpenSolvedNi)
                         autoClickOpenSolvedNi(commentNum);
-                    postUrComment(_commentList[commentNum].comment, false, false);
+                    postUrComment(_commentList[commentNum].comment, false);
                 }
             }
         }
@@ -1417,7 +1417,7 @@
             ) {
                 if (_settings.autoClickOpenSolvedNi)
                     autoClickOpenSolvedNi(_defaultComments.dr.commentNum);
-                postUrComment(_commentList[_defaultComments.dr.commentNum].comment, false, false);
+                postUrComment(_commentList[_defaultComments.dr.commentNum].comment, false);
             }
         }
         if (_settings.autoCenterOnUr)
@@ -2045,7 +2045,7 @@
         }
     }
 
-    async function postUrComment(comment, doubleClick, keepFocus = true) {
+    async function postUrComment(comment, doubleClick) {
         doSpinner('postUrComment', true);
         let commentOutput,
             cursorPos,
@@ -2121,11 +2121,8 @@
                 const positionCursor = () => {
                     domElement.dispatchEvent(new KeyboardEvent('keyup'));
                     domElement.setSelectionRange(selectionRange, selectionRange);
-                    domElement.scrollTop = domElement.scrollHeight;
-                    if (keepFocus)
-                        domElement.focus();
-                    else
-                        domElement.blur();
+                    domElement.scrollTop = _settings.perCommentListSettings[_currentCommentList].placeCursorAtStart ? 0 : domElement.scrollHeight;
+                    domElement.focus();
                 };
                 positionCursor();
                 // Sometimes the comment box gets cleared shortly after we set it - check against this and reassign the comment if needed.
