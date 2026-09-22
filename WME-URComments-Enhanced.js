@@ -1383,7 +1383,7 @@
         if (_mapUpdateRequests[_selUr.urId].urceData.commentCount === 0) {
             if (_settings.autoZoomInOnNewUr)
                 autoZoomIn();
-            const { commentNum } = Object.values(_defaultComments).find((defaultComment) => defaultComment.urNum === mapUrObj.getAttribute('type'));
+            const commentNum = Object.values(_defaultComments).find((defaultComment) => defaultComment.urNum === mapUrObj.getAttribute('type'))?.commentNum;
             if (_selUr.urOpen && commentNum) {
                 if (
                     ((!mapUrObj.getAttribute('description') || (mapUrObj.getAttribute('description').toLowerCase() === 'reported map issue'))
@@ -1399,7 +1399,7 @@
                 ) {
                     if (_settings.autoClickOpenSolvedNi)
                         autoClickOpenSolvedNi(commentNum);
-                    postUrComment(_commentList[commentNum].comment, false);
+                    postUrComment(_commentList[commentNum].comment, false, false);
                 }
             }
         }
@@ -1417,7 +1417,7 @@
             ) {
                 if (_settings.autoClickOpenSolvedNi)
                     autoClickOpenSolvedNi(_defaultComments.dr.commentNum);
-                postUrComment(_commentList[_defaultComments.dr.commentNum].comment, false);
+                postUrComment(_commentList[_defaultComments.dr.commentNum].comment, false, false);
             }
         }
         if (_settings.autoCenterOnUr)
@@ -2045,7 +2045,7 @@
         }
     }
 
-    async function postUrComment(comment, doubleClick) {
+    async function postUrComment(comment, doubleClick, keepFocus = true) {
         doSpinner('postUrComment', true);
         let commentOutput,
             cursorPos,
@@ -2118,9 +2118,29 @@
                 else {
                     selectionRange = newCursorPos + comment.replace(/\\[r|n]+/gm, ' ').length + postNls;
                 }
-                domElement.dispatchEvent(new KeyboardEvent('keyup'));
-                domElement.setSelectionRange(selectionRange, selectionRange);
-                domElement.focus();
+                const positionCursor = () => {
+                    domElement.dispatchEvent(new KeyboardEvent('keyup'));
+                    domElement.setSelectionRange(selectionRange, selectionRange);
+                    domElement.scrollTop = domElement.scrollHeight;
+                    if (keepFocus)
+                        domElement.focus();
+                    else
+                        domElement.blur();
+                };
+                positionCursor();
+                // Sometimes the comment box gets cleared shortly after we set it - check against this and reassign the comment if needed.
+                const verifyAndReapplyValue = () => {
+                    if (!domElement.isConnected)
+                        return;
+                    if (domElement.value !== commentOutput) {
+                        logDebug(`Comment box value was reset after setting; reapplying. Was: "${domElement.value}"`);
+                        domElement.value = commentOutput;
+                        domElement.dispatchEvent(new Event('input'));
+                    }
+                    positionCursor();
+                };
+                setTimeout(verifyAndReapplyValue, 250);
+                setTimeout(verifyAndReapplyValue, 750);
             }
         }
         doSpinner('postUrComment', false);
